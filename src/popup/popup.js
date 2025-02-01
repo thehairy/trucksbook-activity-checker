@@ -52,6 +52,8 @@ async function fetchData(userId) {
     
     const etsJson = await etsData.json();
     const atsJson = await atsData.json();
+    console.log(etsJson);
+    console.log(atsJson);
 
     const etsLabels = etsJson.labels.reverse();
     const atsLabels = atsJson.labels.reverse();
@@ -95,7 +97,7 @@ async function fetchData(userId) {
             previousYear -= 1;
         }
 
-        if ((lastMonth < previousMonth && lastYear === previousYear) || (lastYear < previousYear && lastYear > previousYear)) {
+        if ((lastYear < previousYear) || (lastYear === previousYear && lastMonth < previousMonth)) {
             // Fetch the last logbook from the month of the last delivery
             const logbookData = await fetch(`https://trucksbook.eu/logbook/${userId}/${lastYear}/${lastMonth}/0/`);
             const logbookSite = await logbookData.text();
