@@ -78,12 +78,12 @@ async function fetchData(userId) {
         }
         
         let mostRecentDate = null;
-        let foundMonth = false;
+        let foundDelivery = false;
         let consecutiveFailures = 0;
         
         // Check months backwards starting from current month
         // Stop when we find a month with deliveries
-        for (let i = 0; i < MAX_MONTHS_TO_CHECK && !foundMonth; i++) {
+        for (let i = 0; i < MAX_MONTHS_TO_CHECK && !foundDelivery; i++) {
             const { month: checkMonth, year: checkYear } = getMonthYear(i);
             
             // Fetch logbook for this specific month
@@ -100,26 +100,51 @@ async function fetchData(userId) {
             const logbookHtml = await logbookResponse.text();
             const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
             
-            // Look for delivery entries with data-time attributes
-            const timeElements = logbookDoc.querySelectorAll('[data-time]');
+            // Try to find the delivery table using the original code's approach
+            // The original code used: logbookDoc.getElementById('monthselectmodal').parentNode.children[1].children[1].children[1].children
+            // This navigates to a specific table structure containing deliveries
+            const monthSelectModal = logbookDoc.getElementById('monthselectmodal');
+            if (!monthSelectModal) {
+                continue;
+            }
             
-            for (const element of timeElements) {
-                const timeValue = element.dataset.time;
-                if (timeValue) {
-                    const date = new Date(timeValue);
-                    if (!isNaN(date.getTime())) {
-                        // Verify this date is in the month we're checking
-                        // This filters out any unrelated dates
-                        const dateMonth = date.getMonth() + 1;
-                        const dateYear = date.getFullYear();
-                        if (dateMonth === checkMonth && dateYear === checkYear) {
-                            if (!mostRecentDate || date > mostRecentDate) {
-                                mostRecentDate = date;
+            try {
+                // Navigate to the delivery table rows (same structure as original code)
+                const deliveryTable = monthSelectModal.parentNode.children[1].children[1].children[1];
+                if (!deliveryTable || !deliveryTable.children || deliveryTable.children.length === 0) {
+                    // No deliveries in this month
+                    continue;
+                }
+                
+                // Get all delivery rows
+                const deliveryRows = Array.from(deliveryTable.children);
+                
+                if (deliveryRows.length === 0) {
+                    continue;
+                }
+                
+                // Find the most recent delivery in this month
+                // Deliveries should be sorted, but we'll check all to find the most recent
+                for (const row of deliveryRows) {
+                    // Look for the delivery link/element with data-time
+                    const timeElements = row.querySelectorAll('[data-time]');
+                    for (const element of timeElements) {
+                        const timeValue = element.dataset.time;
+                        if (timeValue) {
+                            const date = new Date(timeValue);
+                            if (!isNaN(date.getTime())) {
+                                if (!mostRecentDate || date > mostRecentDate) {
+                                    mostRecentDate = date;
+                                }
+                                foundDelivery = true;
                             }
-                            foundMonth = true;
                         }
                     }
                 }
+            } catch (domError) {
+                // DOM structure didn't match expected format, try next month
+                console.warn('Could not parse logbook structure for', checkMonth, checkYear);
+                continue;
             }
         }
         
