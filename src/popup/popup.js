@@ -47,6 +47,8 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function fetchData(userId) {
+    const MAX_MONTHS_TO_CHECK = 24; // Maximum months of history to search
+    
     try {
         const parser = new DOMParser();
         const currentDate = new Date();
@@ -64,31 +66,41 @@ async function fetchData(userId) {
             previousYear = currentYear;
         }
         
+        // Helper function to calculate month/year for a given offset from current month
+        function getMonthYear(offset) {
+            let month = currentMonth - offset;
+            let year = currentYear;
+            while (month <= 0) {
+                month += 12;
+                year -= 1;
+            }
+            return { month, year };
+        }
+        
         let mostRecentDate = null;
         let foundMonth = false;
+        let consecutiveFailures = 0;
         
         // Check months backwards starting from current month
         // Stop when we find a month with deliveries
-        for (let i = 0; i < 24 && !foundMonth; i++) {
-            let checkMonth = currentMonth - i;
-            let checkYear = currentYear;
-            
-            while (checkMonth <= 0) {
-                checkMonth += 12;
-                checkYear -= 1;
-            }
+        for (let i = 0; i < MAX_MONTHS_TO_CHECK && !foundMonth; i++) {
+            const { month: checkMonth, year: checkYear } = getMonthYear(i);
             
             // Fetch logbook for this specific month
             const logbookResponse = await fetch(`https://trucksbook.eu/logbook/${userId}/${checkYear}/${checkMonth}/0/`);
             if (!logbookResponse.ok) {
+                consecutiveFailures++;
+                if (consecutiveFailures >= 3) {
+                    console.warn('Multiple consecutive fetch failures, possible connectivity issue');
+                }
                 continue;
             }
+            consecutiveFailures = 0; // Reset on success
             
             const logbookHtml = await logbookResponse.text();
             const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
             
-            // Look for delivery entries - specifically target the logbook table/list
-            // Find elements that look like delivery entries with data-time attributes
+            // Look for delivery entries with data-time attributes
             const timeElements = logbookDoc.querySelectorAll('[data-time]');
             
             for (const element of timeElements) {
@@ -98,7 +110,9 @@ async function fetchData(userId) {
                     if (!isNaN(date.getTime())) {
                         // Verify this date is in the month we're checking
                         // This filters out any unrelated dates
-                        if (date.getMonth() + 1 === checkMonth && date.getFullYear() === checkYear) {
+                        const dateMonth = date.getMonth() + 1;
+                        const dateYear = date.getFullYear();
+                        if (dateMonth === checkMonth && dateYear === checkYear) {
                             if (!mostRecentDate || date > mostRecentDate) {
                                 mostRecentDate = date;
                             }
