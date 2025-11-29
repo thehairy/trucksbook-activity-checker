@@ -47,70 +47,74 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function fetchData(userId) {
-    const etsData = await fetch(`https://trucksbook.eu/components/app/profile/game_overview_data_distance.php?user_id=${userId}&game=1&stat=0&data=distance&period=`)
-    const atsData = await fetch(`https://trucksbook.eu/components/app/profile/game_overview_data_distance.php?user_id=${userId}&game=2&stat=0&data=distance&period=`)
-    
-    const etsJson = await etsData.json();
-    const atsJson = await atsData.json();
-    console.log(etsJson);
-    console.log(atsJson);
-
-    const etsLabels = etsJson.labels.reverse();
-    const atsLabels = atsJson.labels.reverse();
-
-    const etsDistance = etsJson.values.selected_user.reverse();
-    const atsDistance = atsJson.values.selected_user.reverse();
-    let lastDelivery = null;
-
-    let etsFound = false;
-    for (let i = 0; i < etsLabels.length; i++) {
-        if (etsDistance[i] > 0) {
-            lastDelivery = etsLabels[i];
-            etsFound = true;
-            break;
+    try {
+        // Fetch the user's logbook page directly
+        const logbookResponse = await fetch(`https://trucksbook.eu/logbook/${userId}`);
+        if (!logbookResponse.ok) {
+            resultContainer.innerText = 'Failed to fetch logbook data';
+            resultContainer.classList.remove('hidden');
+            return;
         }
-    }
-
-    if (!etsFound) {
-        let atsFound = false;
-        for (let i = 0; i < atsLabels.length; i++) {
-            if (atsDistance[i] > 0) {
-                lastDelivery = atsLabels[i];
-                atsFound = true;
-                break;
+        
+        const logbookHtml = await logbookResponse.text();
+        const parser = new DOMParser();
+        const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
+        
+        // Find the most recent delivery entry by looking for time elements with data-time attribute
+        const timeElements = logbookDoc.querySelectorAll('[data-time]');
+        
+        if (timeElements.length === 0) {
+            resultContainer.innerText = 'No deliveries found';
+            resultContainer.classList.remove('hidden');
+            return;
+        }
+        
+        // Find the most recent delivery date from time elements
+        let mostRecentDate = null;
+        for (const element of timeElements) {
+            const timeValue = element.dataset.time;
+            if (timeValue) {
+                const date = new Date(timeValue);
+                if (!isNaN(date.getTime())) {
+                    if (!mostRecentDate || date > mostRecentDate) {
+                        mostRecentDate = date;
+                    }
+                }
             }
         }
-
-        if (!atsFound) {
+        
+        if (!mostRecentDate) {
             resultContainer.innerText = 'No deliveries found';
+            resultContainer.classList.remove('hidden');
+            return;
         }
-    }
-
-    if (lastDelivery) {
-        const [lastMonth, lastYear] = lastDelivery.split('/').map(Number);
+        
+        // Check if user is active (last delivery within current or previous month)
         const currentDate = new Date();
         let previousMonth = currentDate.getMonth(); // getMonth() returns 0-based month
         let previousYear = currentDate.getFullYear();
-
+        
         if (previousMonth === 0) {
             previousMonth = 12;
             previousYear -= 1;
+        } else {
+            // Keep as 1-based month for comparison
         }
-
-        if ((lastYear < previousYear) || (lastYear === previousYear && lastMonth < previousMonth)) {
-            // Fetch the last logbook from the month of the last delivery
-            const logbookData = await fetch(`https://trucksbook.eu/logbook/${userId}/${lastYear}/${lastMonth}/0/`);
-            const logbookSite = await logbookData.text();
-            const parser = new DOMParser();
-            const logbookDoc = parser.parseFromString(logbookSite, 'text/html');
-            // Process logbookJson as needed
-            const deliveryUrl = Array.from(Array.from(logbookDoc.getElementById('monthselectmodal').parentNode.children[1].children[1].children[1].children).reverse()[0].children).reverse()[0].children[0].getAttribute('href');
-            const deliveryData = await fetch(`https://trucksbook.eu${deliveryUrl}`);
-            const deliverySite = await deliveryData.text();
-            const deliveryDoc = parser.parseFromString(deliverySite, 'text/html');
-
-            const lastDeliveryDate = new Date(Array.from(Array.from(deliveryDoc.getElementById('planneddistanceinfomodal').parentNode.children[0].children[0].children[1].children[0].children[0].children).reverse()[0].children).reverse()[0].dataset.time);
-            const formattedDate = lastDeliveryDate.getDate().toString().padStart(2, '0') + '.' + (lastDeliveryDate.getMonth() + 1).toString().padStart(2, '0') + '.' + lastDeliveryDate.getFullYear();
+        
+        const lastMonth = mostRecentDate.getMonth() + 1; // Convert to 1-based
+        const lastYear = mostRecentDate.getFullYear();
+        
+        // Check if the last delivery is in the current month or the previous month
+        const isCurrentMonth = (lastYear === currentDate.getFullYear() && lastMonth === currentDate.getMonth() + 1);
+        const isPreviousMonth = (lastYear === previousYear && lastMonth === previousMonth);
+        
+        if (isCurrentMonth || isPreviousMonth) {
+            resultContainer.innerText = 'User is active!';
+            resultContainer.classList.add('active');
+        } else {
+            const formattedDate = mostRecentDate.getDate().toString().padStart(2, '0') + '.' + 
+                                  (mostRecentDate.getMonth() + 1).toString().padStart(2, '0') + '.' + 
+                                  mostRecentDate.getFullYear();
             resultContainer.innerHTML = 'Last delivery was on <span class="red-text">' + formattedDate + '</span>';
             resultContainer.classList.remove('active');
             
@@ -120,10 +124,10 @@ async function fetchData(userId) {
             }).catch(err => {
                 console.error('Failed to copy text: ', err);
             });
-        } else {
-            resultContainer.innerText = 'User is active!';
-            resultContainer.classList.add('active');
         }
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        resultContainer.innerText = 'Error fetching data. Please try again.';
     }
 
     // Show the result container
