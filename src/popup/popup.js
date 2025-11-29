@@ -110,6 +110,7 @@ async function fetchData(userId) {
             
             try {
                 // Navigate to the delivery table rows (same structure as original code)
+                // Note: This path matches the original implementation's DOM traversal
                 const deliveryTable = monthSelectModal.parentNode.children[1].children[1].children[1];
                 if (!deliveryTable || !deliveryTable.children || deliveryTable.children.length === 0) {
                     // No deliveries in this month
@@ -118,10 +119,6 @@ async function fetchData(userId) {
                 
                 // Get all delivery rows
                 const deliveryRows = Array.from(deliveryTable.children);
-                
-                if (deliveryRows.length === 0) {
-                    continue;
-                }
                 
                 // Find the most recent delivery in this month
                 // Deliveries should be sorted, but we'll check all to find the most recent
@@ -141,9 +138,9 @@ async function fetchData(userId) {
                         }
                     }
                 }
-            } catch (domError) {
+            } catch (err) {
                 // DOM structure didn't match expected format, try next month
-                console.warn('Could not parse logbook structure for', checkMonth, checkYear);
+                console.warn('Could not parse logbook structure for', checkMonth, checkYear, err.message);
                 continue;
             }
         }
