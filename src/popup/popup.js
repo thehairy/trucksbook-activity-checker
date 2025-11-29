@@ -48,50 +48,9 @@ document.addEventListener('DOMContentLoaded', function() {
 
 async function fetchData(userId) {
     try {
-        // Fetch the user's logbook page directly
-        const logbookResponse = await fetch(`https://trucksbook.eu/logbook/${userId}`);
-        if (!logbookResponse.ok) {
-            resultContainer.innerText = 'Failed to fetch logbook data';
-            resultContainer.classList.remove('hidden');
-            return;
-        }
-        
-        const logbookHtml = await logbookResponse.text();
         const parser = new DOMParser();
-        const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
-        
-        // Find the most recent delivery entry by looking for time elements with data-time attribute
-        const timeElements = logbookDoc.querySelectorAll('[data-time]');
-        
-        if (timeElements.length === 0) {
-            resultContainer.innerText = 'No deliveries found';
-            resultContainer.classList.remove('hidden');
-            return;
-        }
-        
-        // Find the most recent delivery date from time elements
-        let mostRecentDate = null;
-        for (const element of timeElements) {
-            const timeValue = element.dataset.time;
-            if (timeValue) {
-                const date = new Date(timeValue);
-                if (!isNaN(date.getTime())) {
-                    if (!mostRecentDate || date > mostRecentDate) {
-                        mostRecentDate = date;
-                    }
-                }
-            }
-        }
-        
-        if (!mostRecentDate) {
-            resultContainer.innerText = 'No deliveries found';
-            resultContainer.classList.remove('hidden');
-            return;
-        }
-        
-        // Check if user is active (last delivery within current or previous month)
         const currentDate = new Date();
-        const currentMonth = currentDate.getMonth() + 1; // Convert to 1-based month
+        const currentMonth = currentDate.getMonth() + 1; // 1-based
         const currentYear = currentDate.getFullYear();
         
         // Calculate previous month (1-based)
@@ -103,6 +62,57 @@ async function fetchData(userId) {
         } else {
             previousMonth = currentMonth - 1;
             previousYear = currentYear;
+        }
+        
+        let mostRecentDate = null;
+        let foundMonth = false;
+        
+        // Check months backwards starting from current month
+        // Stop when we find a month with deliveries
+        for (let i = 0; i < 24 && !foundMonth; i++) {
+            let checkMonth = currentMonth - i;
+            let checkYear = currentYear;
+            
+            while (checkMonth <= 0) {
+                checkMonth += 12;
+                checkYear -= 1;
+            }
+            
+            // Fetch logbook for this specific month
+            const logbookResponse = await fetch(`https://trucksbook.eu/logbook/${userId}/${checkYear}/${checkMonth}/0/`);
+            if (!logbookResponse.ok) {
+                continue;
+            }
+            
+            const logbookHtml = await logbookResponse.text();
+            const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
+            
+            // Look for delivery entries - specifically target the logbook table/list
+            // Find elements that look like delivery entries with data-time attributes
+            const timeElements = logbookDoc.querySelectorAll('[data-time]');
+            
+            for (const element of timeElements) {
+                const timeValue = element.dataset.time;
+                if (timeValue) {
+                    const date = new Date(timeValue);
+                    if (!isNaN(date.getTime())) {
+                        // Verify this date is in the month we're checking
+                        // This filters out any unrelated dates
+                        if (date.getMonth() + 1 === checkMonth && date.getFullYear() === checkYear) {
+                            if (!mostRecentDate || date > mostRecentDate) {
+                                mostRecentDate = date;
+                            }
+                            foundMonth = true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        if (!mostRecentDate) {
+            resultContainer.innerText = 'No deliveries found';
+            resultContainer.classList.remove('hidden');
+            return;
         }
         
         const lastMonth = mostRecentDate.getMonth() + 1; // Convert to 1-based
