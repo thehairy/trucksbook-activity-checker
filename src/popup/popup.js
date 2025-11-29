@@ -91,21 +91,25 @@ async function fetchData(userId) {
         
         // Check if user is active (last delivery within current or previous month)
         const currentDate = new Date();
-        let previousMonth = currentDate.getMonth(); // getMonth() returns 0-based month
-        let previousYear = currentDate.getFullYear();
+        const currentMonth = currentDate.getMonth() + 1; // Convert to 1-based month
+        const currentYear = currentDate.getFullYear();
         
-        if (previousMonth === 0) {
+        // Calculate previous month (1-based)
+        let previousMonth;
+        let previousYear;
+        if (currentMonth === 1) {
             previousMonth = 12;
-            previousYear -= 1;
+            previousYear = currentYear - 1;
         } else {
-            // Keep as 1-based month for comparison
+            previousMonth = currentMonth - 1;
+            previousYear = currentYear;
         }
         
         const lastMonth = mostRecentDate.getMonth() + 1; // Convert to 1-based
         const lastYear = mostRecentDate.getFullYear();
         
         // Check if the last delivery is in the current month or the previous month
-        const isCurrentMonth = (lastYear === currentDate.getFullYear() && lastMonth === currentDate.getMonth() + 1);
+        const isCurrentMonth = (lastYear === currentYear && lastMonth === currentMonth);
         const isPreviousMonth = (lastYear === previousYear && lastMonth === previousMonth);
         
         if (isCurrentMonth || isPreviousMonth) {
