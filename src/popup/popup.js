@@ -47,139 +47,193 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 
 async function fetchData(userId) {
-    const MAX_MONTHS_TO_CHECK = 24; // Maximum months of history to search
-    
+    try {
+        // Try the original API endpoint first
+        const etsData = await fetch(`https://trucksbook.eu/components/app/profile/game_overview_data_distance.php?user_id=${userId}&game=1&stat=0&data=distance&period=`);
+        const atsData = await fetch(`https://trucksbook.eu/components/app/profile/game_overview_data_distance.php?user_id=${userId}&game=2&stat=0&data=distance&period=`);
+        
+        if (!etsData.ok || !atsData.ok) {
+            throw new Error('API endpoint not available');
+        }
+        
+        const etsJson = await etsData.json();
+        const atsJson = await atsData.json();
+        console.log(etsJson);
+        console.log(atsJson);
+
+        const etsLabels = etsJson.labels.reverse();
+        const atsLabels = atsJson.labels.reverse();
+
+        const etsDistance = etsJson.values.selected_user.reverse();
+        const atsDistance = atsJson.values.selected_user.reverse();
+        let lastDelivery = null;
+
+        let etsFound = false;
+        for (let i = 0; i < etsLabels.length; i++) {
+            if (etsDistance[i] > 0) {
+                lastDelivery = etsLabels[i];
+                etsFound = true;
+                break;
+            }
+        }
+
+        if (!etsFound) {
+            let atsFound = false;
+            for (let i = 0; i < atsLabels.length; i++) {
+                if (atsDistance[i] > 0) {
+                    lastDelivery = atsLabels[i];
+                    atsFound = true;
+                    break;
+                }
+            }
+
+            if (!atsFound) {
+                resultContainer.innerText = 'No deliveries found';
+                resultContainer.classList.remove('hidden');
+                return;
+            }
+        }
+
+        if (lastDelivery) {
+            const [lastMonth, lastYear] = lastDelivery.split('/').map(Number);
+            const currentDate = new Date();
+            let previousMonth = currentDate.getMonth(); // getMonth() returns 0-based month
+            let previousYear = currentDate.getFullYear();
+
+            if (previousMonth === 0) {
+                previousMonth = 12;
+                previousYear -= 1;
+            }
+
+            if ((lastYear < previousYear) || (lastYear === previousYear && lastMonth < previousMonth)) {
+                // Fetch the last logbook from the month of the last delivery
+                const logbookData = await fetch(`https://trucksbook.eu/logbook/${userId}/${lastYear}/${lastMonth}/0/`);
+                const logbookSite = await logbookData.text();
+                const parser = new DOMParser();
+                const logbookDoc = parser.parseFromString(logbookSite, 'text/html');
+                // Process logbookJson as needed
+                const deliveryUrl = Array.from(Array.from(logbookDoc.getElementById('monthselectmodal').parentNode.children[1].children[1].children[1].children).reverse()[0].children).reverse()[0].children[0].getAttribute('href');
+                const deliveryData = await fetch(`https://trucksbook.eu${deliveryUrl}`);
+                const deliverySite = await deliveryData.text();
+                const deliveryDoc = parser.parseFromString(deliverySite, 'text/html');
+
+                const lastDeliveryDate = new Date(Array.from(Array.from(deliveryDoc.getElementById('planneddistanceinfomodal').parentNode.children[0].children[0].children[1].children[0].children[0].children).reverse()[0].children).reverse()[0].dataset.time);
+                const formattedDate = lastDeliveryDate.getDate().toString().padStart(2, '0') + '.' + (lastDeliveryDate.getMonth() + 1).toString().padStart(2, '0') + '.' + lastDeliveryDate.getFullYear();
+                resultContainer.innerHTML = 'Last delivery was on <span class="red-text">' + formattedDate + '</span>';
+                resultContainer.classList.remove('active');
+                
+                // Copy the last delivery date to the clipboard
+                navigator.clipboard.writeText(formattedDate).then(() => {
+                    console.log('Last delivery date copied to clipboard');
+                }).catch(err => {
+                    console.error('Failed to copy text: ', err);
+                });
+            } else {
+                resultContainer.innerText = 'User is active!';
+                resultContainer.classList.add('active');
+            }
+        }
+    } catch (error) {
+        console.error('Error fetching data:', error);
+        // Fallback: Try scraping the logbook directly
+        await fetchDataFromLogbook(userId);
+        return;
+    }
+
+    // Show the result container
+    resultContainer.classList.remove('hidden');
+}
+
+// Fallback function when API is not available
+async function fetchDataFromLogbook(userId) {
     try {
         const parser = new DOMParser();
         const currentDate = new Date();
-        const currentMonth = currentDate.getMonth() + 1; // 1-based
+        const currentMonth = currentDate.getMonth() + 1;
         const currentYear = currentDate.getFullYear();
         
-        // Calculate previous month (1-based)
-        let previousMonth;
-        let previousYear;
-        if (currentMonth === 1) {
-            previousMonth = 12;
-            previousYear = currentYear - 1;
-        } else {
-            previousMonth = currentMonth - 1;
-            previousYear = currentYear;
-        }
+        // Calculate previous month
+        let previousMonth = currentMonth === 1 ? 12 : currentMonth - 1;
+        let previousYear = currentMonth === 1 ? currentYear - 1 : currentYear;
         
-        // Helper function to calculate month/year for a given offset from current month
-        function getMonthYear(offset) {
-            let month = currentMonth - offset;
-            let year = currentYear;
-            while (month <= 0) {
-                month += 12;
-                year -= 1;
+        // Check up to 24 months back
+        for (let i = 0; i < 24; i++) {
+            let checkMonth = currentMonth - i;
+            let checkYear = currentYear;
+            while (checkMonth <= 0) {
+                checkMonth += 12;
+                checkYear -= 1;
             }
-            return { month, year };
-        }
-        
-        let mostRecentDate = null;
-        let foundDelivery = false;
-        let consecutiveFailures = 0;
-        
-        // Check months backwards starting from current month
-        // Stop when we find a month with deliveries
-        for (let i = 0; i < MAX_MONTHS_TO_CHECK && !foundDelivery; i++) {
-            const { month: checkMonth, year: checkYear } = getMonthYear(i);
             
-            // Fetch logbook for this specific month
             const logbookResponse = await fetch(`https://trucksbook.eu/logbook/${userId}/${checkYear}/${checkMonth}/0/`);
-            if (!logbookResponse.ok) {
-                consecutiveFailures++;
-                if (consecutiveFailures >= 3) {
-                    console.warn('Multiple consecutive fetch failures, possible connectivity issue');
-                }
-                continue;
-            }
-            consecutiveFailures = 0; // Reset on success
+            if (!logbookResponse.ok) continue;
             
             const logbookHtml = await logbookResponse.text();
             const logbookDoc = parser.parseFromString(logbookHtml, 'text/html');
             
-            // Try to find the delivery table using the original code's approach
-            // The original code used: logbookDoc.getElementById('monthselectmodal').parentNode.children[1].children[1].children[1].children
-            // This navigates to a specific table structure containing deliveries
+            // Try to find deliveries using the original DOM structure
             const monthSelectModal = logbookDoc.getElementById('monthselectmodal');
-            if (!monthSelectModal) {
-                continue;
-            }
+            if (!monthSelectModal) continue;
             
             try {
-                // Navigate to the delivery table rows (same structure as original code)
-                // Note: This path matches the original implementation's DOM traversal
                 const deliveryTable = monthSelectModal.parentNode.children[1].children[1].children[1];
-                if (!deliveryTable || !deliveryTable.children || deliveryTable.children.length === 0) {
-                    // No deliveries in this month
-                    continue;
-                }
+                if (!deliveryTable || !deliveryTable.children || deliveryTable.children.length === 0) continue;
                 
-                // Get all delivery rows
+                // Found deliveries! Get the most recent one
                 const deliveryRows = Array.from(deliveryTable.children);
+                let mostRecentDate = null;
                 
-                // Find the most recent delivery in this month
-                // Deliveries should be sorted, but we'll check all to find the most recent
                 for (const row of deliveryRows) {
-                    // Look for the delivery link/element with data-time
                     const timeElements = row.querySelectorAll('[data-time]');
                     for (const element of timeElements) {
                         const timeValue = element.dataset.time;
                         if (timeValue) {
                             const date = new Date(timeValue);
-                            if (!isNaN(date.getTime())) {
-                                if (!mostRecentDate || date > mostRecentDate) {
-                                    mostRecentDate = date;
-                                }
-                                foundDelivery = true;
+                            if (!isNaN(date.getTime()) && (!mostRecentDate || date > mostRecentDate)) {
+                                mostRecentDate = date;
                             }
                         }
                     }
                 }
-            } catch (err) {
-                // DOM structure didn't match expected format, try next month
-                console.warn('Could not parse logbook structure for', checkMonth, checkYear, err.message);
+                
+                if (mostRecentDate) {
+                    const lastMonth = mostRecentDate.getMonth() + 1;
+                    const lastYear = mostRecentDate.getFullYear();
+                    
+                    const isCurrentMonth = (lastYear === currentYear && lastMonth === currentMonth);
+                    const isPreviousMonth = (lastYear === previousYear && lastMonth === previousMonth);
+                    
+                    if (isCurrentMonth || isPreviousMonth) {
+                        resultContainer.innerText = 'User is active!';
+                        resultContainer.classList.add('active');
+                    } else {
+                        const formattedDate = mostRecentDate.getDate().toString().padStart(2, '0') + '.' + 
+                                              (mostRecentDate.getMonth() + 1).toString().padStart(2, '0') + '.' + 
+                                              mostRecentDate.getFullYear();
+                        resultContainer.innerHTML = 'Last delivery was on <span class="red-text">' + formattedDate + '</span>';
+                        resultContainer.classList.remove('active');
+                        
+                        navigator.clipboard.writeText(formattedDate).then(() => {
+                            console.log('Last delivery date copied to clipboard');
+                        }).catch(err => {
+                            console.error('Failed to copy text: ', err);
+                        });
+                    }
+                    resultContainer.classList.remove('hidden');
+                    return;
+                }
+            } catch (domErr) {
+                // DOM structure didn't match, try next month
                 continue;
             }
         }
         
-        if (!mostRecentDate) {
-            resultContainer.innerText = 'No deliveries found';
-            resultContainer.classList.remove('hidden');
-            return;
-        }
-        
-        const lastMonth = mostRecentDate.getMonth() + 1; // Convert to 1-based
-        const lastYear = mostRecentDate.getFullYear();
-        
-        // Check if the last delivery is in the current month or the previous month
-        const isCurrentMonth = (lastYear === currentYear && lastMonth === currentMonth);
-        const isPreviousMonth = (lastYear === previousYear && lastMonth === previousMonth);
-        
-        if (isCurrentMonth || isPreviousMonth) {
-            resultContainer.innerText = 'User is active!';
-            resultContainer.classList.add('active');
-        } else {
-            const formattedDate = mostRecentDate.getDate().toString().padStart(2, '0') + '.' + 
-                                  (mostRecentDate.getMonth() + 1).toString().padStart(2, '0') + '.' + 
-                                  mostRecentDate.getFullYear();
-            resultContainer.innerHTML = 'Last delivery was on <span class="red-text">' + formattedDate + '</span>';
-            resultContainer.classList.remove('active');
-            
-            // Copy the last delivery date to the clipboard
-            navigator.clipboard.writeText(formattedDate).then(() => {
-                console.log('Last delivery date copied to clipboard');
-            }).catch(err => {
-                console.error('Failed to copy text: ', err);
-            });
-        }
+        // No deliveries found after checking all months
+        resultContainer.innerText = 'No deliveries found';
+        resultContainer.classList.remove('hidden');
     } catch (error) {
-        console.error('Error fetching data:', error);
+        console.error('Error in fallback fetch:', error);
         resultContainer.innerText = 'Error fetching data. Please try again.';
+        resultContainer.classList.remove('hidden');
     }
-
-    // Show the result container
-    resultContainer.classList.remove('hidden');
 }
