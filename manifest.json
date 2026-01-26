@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "TrucksBook Activity Manager",
+  "version": "2.0",
+  "description": "Checks user activity and finds last delivery dates.",
+  "permissions": [
+    "scripting"
+  ],
+  "host_permissions": [
+    "https://trucksbook.eu/*"
+  ],
+  "action": {
+    "default_popup": "popup.html",
+    "default_title": "Open TB Tool"
+  }
+}
