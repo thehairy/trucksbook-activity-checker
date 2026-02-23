@@ -111,13 +111,12 @@ async function checkLogbookActivity(userId, year, month) {
 async function findLastDateRecursive(userId, startYear, depth) {
     if (depth <= 0) return "Keine Daten (>3 Jahre)";
 
-    const url = `${BASE_URL}/components/app/logbook/month_overview.php?user_id=${userId}&year=${startYear}&game=0`;
+    const url = `${BASE_URL}/logbook-month-select?user_id=${userId}&year=${startYear}&game=0`;
     
     try {
         const doc = await fetchHTML(url);
-        // This table is simple and usually unique on this component page, 
-        // but let's be safe and grab the striped one.
-        const table = doc.querySelector("table.table-striped.table-hover");
+        // Try the specific class first; fall back to any table on this page.
+        const table = doc.querySelector("table.table-striped.table-hover") || doc.querySelector("table");
         
         if (!table) {
             await delay(200);
@@ -134,7 +133,7 @@ async function findLastDateRecursive(userId, startYear, depth) {
             const cols = row.querySelectorAll("td");
             
             // Look for digits in the distance column
-            const distanceText = cols[1] ? cols[1].innerText.trim() : "";
+            const distanceText = cols[1] ? cols[1].textContent.trim() : "";
             const hasNumber = /\d/.test(distanceText);
             
             if (hasNumber && distanceText !== "0 km") {
