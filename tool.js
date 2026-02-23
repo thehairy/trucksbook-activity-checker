@@ -1,14 +1,3 @@
-// ── Utilities ──────────────────────────────────────────────────
-
-function escapeHTML(str) {
-    return String(str)
-        .replace(/&/g, '&amp;')
-        .replace(/</g, '&lt;')
-        .replace(/>/g, '&gt;')
-        .replace(/"/g, '&quot;')
-        .replace(/'/g, '&#39;');
-}
-
 // ── Phase helpers ──────────────────────────────────────────────
 function showPhase(id) {
     ['phase-input', 'phase-loading', 'phase-results'].forEach(p => {
@@ -21,20 +10,22 @@ function showPhase(id) {
     });
 }
 
-function logStep(icon, textHTML) {
-    const log = document.getElementById('step-log');
-    const entry = document.createElement('div');
-    entry.className = 'step-entry';
-    const iconSpan = document.createElement('span');
-    iconSpan.className = 'step-icon';
-    iconSpan.textContent = icon;
-    const textSpan = document.createElement('span');
-    textSpan.className = 'step-text';
-    textSpan.innerHTML = textHTML; // caller must escape user values
-    entry.appendChild(iconSpan);
-    entry.appendChild(textSpan);
-    log.appendChild(entry);
-    log.scrollTop = log.scrollHeight;
+// logStep(icon, parts) — parts is an array of {text, bold} objects
+// No innerHTML used; all user values stay in textContent.
+function logStep(icon, parts) {
+    const label = document.getElementById('step-label');
+    label.textContent = '';
+    const iconNode = document.createTextNode(icon + ' ');
+    label.appendChild(iconNode);
+    parts.forEach(({ text, bold }) => {
+        if (bold) {
+            const b = document.createElement('strong');
+            b.textContent = text;
+            label.appendChild(b);
+        } else {
+            label.appendChild(document.createTextNode(text));
+        }
+    });
 }
 
 // ── Stored results for download ────────────────────────────────
@@ -51,7 +42,7 @@ document.getElementById('refreshBtn').addEventListener('click', resetToStart);
 function resetToStart() {
     _results = [];
     document.querySelector('#previewTable tbody').innerHTML = '';
-    document.getElementById('step-log').innerHTML = '';
+    document.getElementById('step-label').textContent = '';
     document.getElementById('progressFill').style.width = '0%';
     showPhase('phase-input');
 }
@@ -84,12 +75,11 @@ async function startProcess() {
     let prevYear = currentYear;
     if (prevMonth === 0) { prevMonth = 12; prevYear -= 1; }
 
-    logStep('🚀', `Starting check for <strong>${ids.length}</strong> user(s)…`);
+    logStep('🚀', [{ text: 'Starting check for ' }, { text: String(ids.length), bold: true }, { text: ' user(s)…' }]);
 
     // 3. Process loop
     for (const userId of ids) {
-        const safeId = escapeHTML(userId);
-        logStep('🔍', `Checking activity for user <strong>${safeId}</strong>…`);
+        logStep('🔍', [{ text: 'Checking activity for user ' }, { text: userId, bold: true }, { text: '…' }]);
 
         // A. Check Activity (current & previous month)
         let isActive = await checkLogbookActivity(userId, currentYear, currentMonth);
@@ -103,14 +93,14 @@ async function startProcess() {
 
         // B. If inactive, find the exact last date
         if (!isActive) {
-            logStep('📅', `Finding last delivery date for user <strong>${safeId}</strong>…`);
+            logStep('📅', [{ text: 'Finding last delivery date for user ' }, { text: userId, bold: true }, { text: '…' }]);
             lastDate = await findLastDateRecursive(userId, currentYear, 3);
         } else {
             lastDate = 'Aktiv';
         }
 
-        const safeDate = escapeHTML(lastDate);
-        logStep(isActive ? '✅' : '⚪', `User <strong>${safeId}</strong> → ${statusStr}${lastDate && lastDate !== 'Aktiv' ? ' (' + safeDate + ')' : ''}`);
+        const dateSuffix = lastDate && lastDate !== 'Aktiv' ? ` (${lastDate})` : '';
+        logStep(isActive ? '✅' : '⚪', [{ text: 'User ' }, { text: userId, bold: true }, { text: ` → ${statusStr}${dateSuffix}` }]);
 
         // C. Save result
         _results.push({ id: userId, status: statusStr, date: lastDate });
@@ -123,7 +113,7 @@ async function startProcess() {
         await delay(300);
     }
 
-    logStep('🎉', 'All done! Building results table…');
+    logStep('🎉', [{ text: 'All done! Building results table…' }]);
 
     // 4. Populate results table
     _results.forEach(item => {
